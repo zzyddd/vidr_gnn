@@ -6,116 +6,83 @@ from torch import nn
 import torch.nn.functional as F
 import os
 import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib
-
-matplotlib.use('TkAgg')  # 选择一个可用的后端，比如TkAgg
-
 
 def pairwise_distance(x):
     """
-    Compute pairwise distance of a point cloud.
     Args:
         x: tensor (batch_size, num_points, num_dims)
     Returns:
         pairwise distance: (batch_size, num_points, num_points)
     """
-    with torch.no_grad():
-        x_inner = -2 * torch.matmul(x, x.transpose(2, 1))
-        x_square = torch.sum(torch.mul(x, x), dim=-1, keepdim=True)
-        return x_square + x_inner + x_square.transpose(2, 1)
-
+    return torch.cdist(x, x, p=2).pow(2)
 
 def pairwise_distance_FR(x, y):
     """
-    Compute pairwise distance between points in two point clouds.
     Args:
         x: tensor (batch_size, num_points, num_dims)
         y: tensor (batch_size, num_points, num_dims)
     Returns:
         pairwise distance: tensor (batch_size, num_points, num_points)
     """
-    # with torch.no_grad():
-    x_inner = -2 * torch.matmul(x, y.transpose(2, 1))
-    x_square = torch.sum(torch.mul(x, x), dim=-1, keepdim=True)
-    y_square = torch.sum(torch.mul(y, y), dim=-1, keepdim=True)
-    return x_square + x_inner + y_square.transpose(2, 1)
-
+    return torch.cdist(x, y, p=2).pow(2)
 
 def part_pairwise_distance(x, start_idx=0, end_idx=1):
     """
-    Compute pairwise distance of a point cloud.
     Args:
         x: tensor (batch_size, num_points, num_dims)
+        start_idx/end_idx:
     Returns:
-        pairwise distance: (batch_size, num_points, num_points)
+        distance: (batch_size, part_points, num_points)
     """
-    with torch.no_grad():
-        x_part = x[:, start_idx:end_idx]
-        x_square_part = torch.sum(torch.mul(x_part, x_part), dim=-1, keepdim=True)
-        x_inner = -2 * torch.matmul(x_part, x.transpose(2, 1))
-        x_square = torch.sum(torch.mul(x, x), dim=-1, keepdim=True)
-        return x_square_part + x_inner + x_square.transpose(2, 1)
-
+    x_part = x[:, start_idx:end_idx]
+    return torch.cdist(x_part, x, p=2).pow(2)
 
 def xy_pairwise_distance(x, y):
     """
-    Compute pairwise distance of a point cloud.
     Args:
         x: tensor (batch_size, num_points, num_dims)
+        y: tensor (batch_size, num_points, num_dims)
     Returns:
-        pairwise distance: (batch_size, num_points, num_points)
+        distance: (batch_size, num_points, num_points)
     """
-    with torch.no_grad():
-        xy_inner = -2 * torch.matmul(x, y.transpose(2, 1))
-        x_square = torch.sum(torch.mul(x, x), dim=-1, keepdim=True)
-        y_square = torch.sum(torch.mul(y, y), dim=-1, keepdim=True)
-        return x_square + xy_inner + y_square.transpose(2, 1)
-
+    return torch.cdist(x, y, p=2).pow(2)
 
 def norm(t):
     return F.normalize(t, dim=1, eps=1e-10)
 
-
 def helper(dist_x, dist_code, shift):
-    min_val = 0.0
-    dist_code_clamped = dist_code.clamp(
-        min=min_val).detach()  # detaching to ensure no modification of the computation graph
+    min_val = 0.00001
+    dist_code_clamped = dist_code.clamp(min=min_val)
     loss = - dist_code_clamped * (dist_x - shift)
     return loss, dist_code
 
-
 def compute_distances(x, code, k=16):
-    """dist_x_self, dist_code_self, dist_x_knn, dist_code_knn, dist_x_rand, dist_code_rand"""
-    dist_x_self = pairwise_distance_FR(x, x)
-    dist_code_self = pairwise_distance_FR(code, code)
-    mask_x = torch.eye(x.shape[1]).bool().unsqueeze(0).expand_as(dist_x_self).cuda()
-    dist_min_x = dist_x_self.clone().masked_fill_(mask_x, float('inf'))
-    dist_max_x = dist_x_self.clone().masked_fill_(mask_x, -float('inf'))
 
-    # mask_code = torch.eye(code.shape[1]).bool().unsqueeze(0).expand_as(dist_code_self).cuda()
-    # dist_min_code = dist_code_self.clone().masked_fill_(mask_code, float('inf'))
-    # dist_max_code = dist_code_self.clone().masked_fill_(mask_code, -float('inf'))
+    batch_size, num_points, _ = x.shape
+    device = x.device
 
-    closest_indices_x = dist_min_x.argmin(dim=-1)
-    farthest_indices_x = dist_max_x.argmax(dim=-1)
+    dist_x_self = pairwise_distance_FR(x, x)  # (B, N, N)
+    dist_code_self = pairwise_distance_FR(code, code)  # (B, N, N)
 
-    # closest_indices_code = dist_min_code.argmin(dim=-1)
-    # farthest_indices_code = dist_max_code.argmax(dim=-1)
+    mask_x = torch.eye(num_points, device=device).bool().unsqueeze(0)  # (1, N, N)
+    mask_x = mask_x.expand(batch_size, -1, -1)  # (B, N, N)
 
-    knn_x = torch.gather(x, 1, closest_indices_x.unsqueeze(-1).expand(-1, -1, x.shape[2]))
-    rand_x = torch.gather(x, 1, farthest_indices_x.unsqueeze(-1).expand(-1, -1, x.shape[2]))
+    dist_min_x = dist_x_self.masked_fill(mask_x, float('inf'))
+    closest_indices_x = dist_min_x.argmin(dim=-1)  # (B, N)
 
-    knn_code = torch.gather(code, 1, closest_indices_x.unsqueeze(-1).expand(-1, -1, code.shape[2]))
-    rand_code = torch.gather(code, 1, farthest_indices_x.unsqueeze(-1).expand(-1, -1, code.shape[2]))
+    dist_max_x = dist_x_self.masked_fill(mask_x, -float('inf'))
+    farthest_indices_x = dist_max_x.argmax(dim=-1)  # (B, N)
 
-    dist_x_knn = pairwise_distance_FR(x, knn_x)
-    dist_x_rand = pairwise_distance_FR(x, rand_x)
-    dist_code_knn = pairwise_distance_FR(code, knn_code)
-    dist_code_rand = pairwise_distance_FR(code, rand_code)
+    closest_indices_expanded = closest_indices_x.unsqueeze(1).expand(-1, num_points, -1)  # (B, N, N)
+    farthest_indices_expanded = farthest_indices_x.unsqueeze(1).expand(-1, num_points, -1)
+
+    dist_x_knn = torch.gather(dist_x_self, dim=2, index=closest_indices_expanded)  # (B, N, N)
+    dist_x_rand = torch.gather(dist_x_self, dim=2, index=farthest_indices_expanded)
+
+    dist_code_knn = torch.gather(dist_code_self, dim=2, index=closest_indices_expanded)
+    dist_code_rand = torch.gather(dist_code_self, dim=2, index=farthest_indices_expanded)
 
     return dist_x_self, dist_code_self, dist_x_knn, dist_code_knn, dist_x_rand, dist_code_rand
-
 
 def Discriminative_Feature_Reorganization(dist_x_self, dist_code_self, dist_x_knn, dist_code_knn, dist_x_rand,
                                           dist_code_rand):
@@ -140,13 +107,12 @@ def Discriminative_Feature_Reorganization(dist_x_self, dist_code_self, dist_x_kn
 
     return Discriminative_Reorganization_Loss
 
-
 ###################
 def adjacency_joint_optimization(F, R):
     """
     Args:
-        F: [batch_size, num_points, d_f] 原始特征
-        R: [batch_size, num_points, d_r] 编码特征
+        F: [batch_size, num_points, d_f]
+        R: [batch_size, num_points, d_r]
 
     Returns:
         fused: [batch_size, num_points, d_f + d_r]
@@ -156,7 +122,6 @@ def adjacency_joint_optimization(F, R):
 
     return fused
 ###################
-
 
 def Graph_Structure_Refinement(x, y, code, k=16, relative_pos=None):
     """
@@ -183,7 +148,6 @@ def Graph_Structure_Refinement(x, y, code, k=16, relative_pos=None):
     if relative_pos is not None:
         dist += relative_pos
     _, nn_idx = torch.topk(-dist, k=k, dim=-1)  # topk returns indices of top-k smallest values
-
     return nn_idx
 
 def dense_knn_matrix(x, code, k=16, relative_pos=None):
@@ -198,8 +162,6 @@ def dense_knn_matrix(x, code, k=16, relative_pos=None):
     y = None
     code = code.transpose(2, 1).squeeze(-1)
     batch_size, n_points, n_dims = x.shape
-    batch_size_code, n_points_code, n_dims_code = code.shape
-
     n_part = 10000
     if n_points > n_part:
         nn_idx_list = []
@@ -244,10 +206,7 @@ def xy_dense_knn_matrix(x, y, code, k=16, relative_pos=None):
     y = y.transpose(2, 1).squeeze(-1)
     code = code.transpose(2, 1).squeeze(-1)
     batch_size, n_points, n_dims = x.shape
-    batch_size_code, n_points_code, n_dims_code = code.shape
-
     if batch_size != 1:
-
         dist_x_self, dist_code_self, dist_x_knn, dist_code_knn, dist_x_rand, dist_code_rand = compute_distances(x, code,
                                                                                                                 k)
         Discriminative_Reorganization_Loss = Discriminative_Feature_Reorganization(
