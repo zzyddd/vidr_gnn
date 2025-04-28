@@ -130,24 +130,33 @@ class DyGraphConv2d(GraphConv2d):
         self.dilated_knn_graph = DenseDilatedKnnGraph(kernel_size, dilation, stochastic, epsilon)
         if self.r == 1:
             self.downconvs = nn.Sequential(
-                nn.Conv2d(192, 32, (1, 1))
+                nn.Conv2d(192, 32, kernel_size=1, bias=False),
+                nn.BatchNorm2d(32),
+                nn.ReLU(inplace=True)
             )
-
             self.downconvs_1 = nn.Sequential(
-                nn.Conv2d(384, 128, (1, 1))
+                nn.Conv2d(384, 128, kernel_size=1, bias=False),
+                nn.BatchNorm2d(128),
+                nn.ReLU(inplace=True)
             )
             self.downconvs_2 = nn.Sequential(
-                nn.Conv2d(240, 64, (1, 1))
+                nn.Conv2d(240, 64, kernel_size=1, bias=False),
+                nn.BatchNorm2d(64),
+                nn.ReLU(inplace=True)
             )
-
+        
         if self.r > 1:
-
             self.downconvs_3 = nn.Sequential(
-                nn.Conv2d(96, 36, (1, 1))
+                nn.Conv2d(96, 36, kernel_size=1, bias=False),
+                nn.BatchNorm2d(36),
+                nn.ReLU(inplace=True)
             )
             self.downconvs_4 = nn.Sequential(
-                nn.Conv2d(48, 24, (1, 1))
+                nn.Conv2d(48, 24, kernel_size=1, bias=False),
+                nn.BatchNorm2d(24),
+                nn.ReLU(inplace=True)
             )
+
 
 
     def forward(self, x, relative_pos=None):
