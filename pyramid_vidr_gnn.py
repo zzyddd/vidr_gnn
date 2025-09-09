@@ -166,15 +166,17 @@ class DeepGCN(torch.nn.Module):
     def forward(self, inputs):
         x = self.stem(inputs) + self.pos_embed
         B, C, H, W = x.shape
+        Discriminative_Reorganization_Losses = 0
         for i in range(len(self.backbone)):
             results = self.backbone[i](x)
             if isinstance(results, list):
                 x = results[0]
                 Discriminative_Reorganization_Loss = results[1]
+                Discriminative_Reorganization_Losses = Discriminative_Reorganization_Loss + Discriminative_Reorganization_Loss
             else:
                 x = results
         x = F.adaptive_avg_pool2d(x, 1)
-        return self.prediction(x).squeeze(-1).squeeze(-1), Discriminative_Reorganization_Loss
+        return self.prediction(x).squeeze(-1).squeeze(-1), Discriminative_Reorganization_Losses
 
 
 @register_model
