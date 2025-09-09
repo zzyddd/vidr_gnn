@@ -172,7 +172,7 @@ class DeepGCN(torch.nn.Module):
             if isinstance(results, list):
                 x = results[0]
                 Discriminative_Reorganization_Loss = results[1]
-                Discriminative_Reorganization_Losses = Discriminative_Reorganization_Loss + Discriminative_Reorganization_Loss
+                Discriminative_Reorganization_Losses = Discriminative_Reorganization_Losses + Discriminative_Reorganization_Loss
             else:
                 x = results
         x = F.adaptive_avg_pool2d(x, 1)
